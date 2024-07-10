@@ -1,0 +1,87 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'JDK17'
+        nodejs 'Node22'
+    }
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+    }
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+        stage('Checkout from Git') {
+            steps {
+                git branch: 'main', url: 'https://github.com/vaibguptab/Netflix-clone.git'
+            }
+        }
+        stage("Sonarqube Analysis "){
+             steps{
+                 withSonarQubeEnv('sonar-server') {
+                     sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Netflix \
+                     -Dsonar.projectKey=Netflix \
+                         -Dsonar.login=admin\
+                         -Dsonar.password=1234'''
+                 }
+             }
+         }
+        stage('Quality Gate') {
+            steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-key'
+                }
+            }
+        }
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm install'
+            }
+        }
+        stage('OWASP Dependency Scan') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('Trivy File System Scan') {
+            steps {
+                sh 'trivy fs . > trivyfs.txt'
+            }
+        }
+        stage("Docker Build & Push"){
+            steps{
+                script{
+                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){
+                       sh "docker build --build-arg TMDB_V3_API_KEY=37c175b8ccae6b2907326934e67d9bf1 -t netflix ."
+                       sh "docker tag netflix vaibguptab/netflixops:latest "
+                       sh "docker push vaibguptab/netflixops:latest "
+                    }
+                }
+            }
+        }
+        stage("TRIVY"){
+            steps{
+                sh "trivy image vaibguptab/netflixops:latest > trivyimage.txt"
+            }
+        }
+        stage('Deploy to container'){
+            steps{
+                sh 'docker run -d --name netflix -p 8081:80 vaibguptab/netflixops:latest'
+            }
+        }
+    }
+    post {
+     always {
+        emailext attachLog: true,
+            subject: "'${currentBuild.result}'",
+            body: "Project: ${env.JOB_NAME}<br/>" +
+                "Build Number: ${env.BUILD_NUMBER}<br/>" +
+                "URL: ${env.BUILD_URL}<br/>",
+            to: 'vaib.guptab@gmail.com',
+            attachmentsPattern: 'trivyfs.txt,trivyimage.txt'
+        }
+    }
+}
