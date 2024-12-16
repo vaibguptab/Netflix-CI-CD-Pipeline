@@ -81,7 +81,7 @@
 ## Install with Docker
 
 ```sh
-docker build --build-arg TMDB_V3_API_KEY=your_api_key_here -t netflix-clone .
+docker build --build-arg TMDB_V3_API_KEY=4d75ecea618737107625d2f363e1a447 -t netflix-clone .
 
 docker run --name netflix-clone-website --rm -d -p 80:80 netflix-clone
 ```
